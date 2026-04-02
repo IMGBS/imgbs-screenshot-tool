@@ -1,0 +1,1000 @@
+"""
+IMGBS Screenshot Tool v7
+Auto-start, upload sounds, titles, album picker, auto-upload, settings
+"""
+
+import sys, os, json, io, time, ctypes, ctypes.wintypes, winreg, winsound
+from pathlib import Path
+
+MISSING = []
+try:
+    from PyQt5.QtWidgets import *
+    from PyQt5.QtCore import *
+    from PyQt5.QtGui import *
+except ImportError: MISSING.append('PyQt5')
+try: import requests
+except ImportError: MISSING.append('requests')
+try: from PIL import ImageGrab, Image
+except ImportError: MISSING.append('Pillow')
+
+if MISSING:
+    print(f"Missing: {', '.join(MISSING)}\npip install {' '.join(MISSING)}")
+    sys.exit(1)
+
+SITE_URL = "https://imgbs.com"
+CFG_DIR = Path.home() / ".imgbs-tool"
+CFG_FILE = CFG_DIR / "config.json"
+STARTUP_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+APP_NAME = "IMGBS Screenshot Tool"
+
+# Embedded images (base64 PNG)
+LOGO_B64 = "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"
+ICON_B64 = "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"
+
+def _app_icon():
+    import base64
+    px = QPixmap()
+    px.loadFromData(base64.b64decode(ICON_B64))
+    return QIcon(px)
+
+def _logo_pixmap(max_w=160, max_h=50):
+    import base64
+    px = QPixmap()
+    px.loadFromData(base64.b64decode(LOGO_B64))
+    return px.scaled(max_w, max_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+def apply_dwm(hwnd):
+    try:
+        d = ctypes.windll.dwmapi; v = ctypes.c_int(1)
+        d.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(v), 4)
+        v2 = ctypes.c_int(3); d.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(v2), 4)
+    except: pass
+
+def play_success_sound():
+    try: winsound.PlaySound("SystemAsterisk", winsound.SND_ALIAS | winsound.SND_ASYNC)
+    except: pass
+
+def set_auto_start(enabled):
+    try:
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, STARTUP_KEY, 0, winreg.KEY_SET_VALUE)
+        if enabled:
+            exe = sys.executable; script = os.path.abspath(__file__)
+            winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, f'"{exe}" "{script}"')
+        else:
+            try: winreg.DeleteValue(key, APP_NAME)
+            except FileNotFoundError: pass
+        winreg.CloseKey(key)
+    except: pass
+
+def get_auto_start():
+    try:
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, STARTUP_KEY, 0, winreg.KEY_READ)
+        winreg.QueryValueEx(key, APP_NAME); winreg.CloseKey(key); return True
+    except: return False
+
+
+class Hotkeys(QThread):
+    on_full = pyqtSignal()
+    on_region = pyqtSignal()
+    def __init__(self): super().__init__(); self._run = True
+    def run(self):
+        u = ctypes.windll.user32
+        u.RegisterHotKey(None, 1, 0x4000, 0x2C)
+        u.RegisterHotKey(None, 2, 0x0006|0x4000, 0x53)
+        msg = ctypes.wintypes.MSG()
+        while self._run:
+            if u.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):
+                if msg.message == 0x0312:
+                    {1: self.on_full, 2: self.on_region}.get(msg.wParam, self.on_full).emit()
+            else: time.sleep(0.05)
+        u.UnregisterHotKey(None, 1); u.UnregisterHotKey(None, 2)
+    def stop(self): self._run = False
+
+
+class Config:
+    DEFAULTS = {
+        'api_key':'','username':'','logged_in':False,
+        'auto_upload':False, 'sound_enabled':True, 'auto_start':False,
+        'albums':[]  # cached album list
+    }
+    def __init__(self):
+        CFG_DIR.mkdir(parents=True, exist_ok=True)
+        self.d = dict(self.DEFAULTS)
+        if CFG_FILE.exists():
+            try:
+                with open(CFG_FILE) as f: self.d.update(json.load(f))
+            except: pass
+    def save(self):
+        with open(CFG_FILE,'w') as f: json.dump(self.d, f)
+    def get(self, k, df=None): return self.d.get(k, df if df is not None else self.DEFAULTS.get(k))
+    def set(self, k, v): self.d[k] = v; self.save()
+
+
+class Uploader(QThread):
+    done = pyqtSignal(dict)
+    def __init__(self, img, cfg, is_gif=False, title='', album_id='', orig_name=''):
+        super().__init__()
+        self.img, self.cfg, self.is_gif, self.title, self.album_id, self.orig_name = img, cfg, is_gif, title, album_id, orig_name
+    def run(self):
+        try:
+            buf = io.BytesIO()
+            if self.is_gif:
+                self.img[0].save(buf, format='GIF', save_all=True, append_images=self.img[1:],
+                                  duration=100, loop=0, optimize=True)
+                fname = self.orig_name or f"gif-recording-{time.strftime('%b-%d-%Y-%H%M%S')}.gif"
+                mime = 'image/gif'
+            else:
+                self.img.save(buf, format='PNG')
+                fname = self.orig_name or f"screenshot-{time.strftime('%b-%d-%Y-%H%M%S')}.png"
+                mime = 'image/png'
+            buf.seek(0)
+            f = {'image': (fname, buf, mime)}
+            data = {}
+            if self.title: data['title'] = self.title
+            if self.album_id: data['album_id'] = self.album_id
+            ak = self.cfg.get('api_key')
+            if ak:
+                r = requests.post(f"{SITE_URL}/api/sharex.php", files=f, data=data, headers={'X-API-Key': ak}, timeout=60)
+            else:
+                r = requests.post(f"{SITE_URL}/api/upload.php", files=f, data=data, timeout=60)
+            t = r.text; j = t.rfind('{"')
+            if j > 0: t = t[j:]
+            self.done.emit(json.loads(t))
+        except Exception as e:
+            self.done.emit({'error': str(e)})
+
+
+class AlbumFetcher(QThread):
+    done = pyqtSignal(list)
+    def __init__(self, cfg):
+        super().__init__(); self.cfg = cfg
+    def run(self):
+        try:
+            ak = self.cfg.get('api_key')
+            if not ak: self.done.emit([]); return
+            r = requests.get(f"{SITE_URL}/api/album.php?action=list", headers={'X-API-Key': ak}, timeout=10)
+            t = r.text; j = t.rfind('{')
+            if j >= 0: t = t[j:]
+            d = json.loads(t)
+            if isinstance(d, dict) and 'albums' in d:
+                self.done.emit(d['albums'])
+            elif isinstance(d, list):
+                self.done.emit(d)
+            else:
+                self.done.emit([])
+        except: self.done.emit([])
+
+
+# ── Multi-monitor helpers ──
+def _virtual_geometry():
+    screens = QApplication.screens()
+    if not screens: return QApplication.primaryScreen().geometry()
+    left = min(s.geometry().left() for s in screens)
+    top = min(s.geometry().top() for s in screens)
+    right = max(s.geometry().right() for s in screens)
+    bottom = max(s.geometry().bottom() for s in screens)
+    return QRect(left, top, right - left + 1, bottom - top + 1)
+
+def _grab_all_screens(vg=None):
+    if vg is None: vg = _virtual_geometry()
+    pix = QPixmap(vg.size()); pix.fill(Qt.black)
+    painter = QPainter(pix)
+    for screen in QApplication.screens():
+        sg = screen.geometry(); shot = screen.grabWindow(0)
+        painter.drawPixmap(sg.x() - vg.x(), sg.y() - vg.y(), shot)
+    painter.end(); return pix
+
+
+# ── Region Selector ──
+class RegionSelector(QWidget):
+    selected = pyqtSignal(QRect)
+    cancelled = pyqtSignal()
+    def __init__(self, shot):
+        super().__init__()
+        self.shot = shot; self.p1 = self.p2 = None; self.active = False
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setCursor(Qt.CrossCursor)
+        self.setGeometry(_virtual_geometry()); self.show()
+    def paintEvent(self, e):
+        p = QPainter(self); p.drawPixmap(0, 0, self.shot)
+        p.fillRect(self.rect(), QColor(0, 0, 0, 90))
+        if self.p1 and self.p2:
+            r = QRect(self.p1, self.p2).normalized()
+            p.setCompositionMode(QPainter.CompositionMode_Source)
+            p.drawPixmap(r, self.shot, r); p.setCompositionMode(QPainter.CompositionMode_SourceOver)
+            for i in range(3, 0, -1):
+                p.setPen(QPen(QColor(57,255,20, 40*i), i*2)); p.setBrush(Qt.NoBrush)
+                p.drawRect(r.adjusted(-i,-i,i,i))
+            p.setPen(QPen(QColor(57,255,20, 220), 1.5)); p.drawRect(r)
+            for cx, cy in [(r.left(),r.top()),(r.right(),r.top()),(r.left(),r.bottom()),(r.right(),r.bottom())]:
+                p.setPen(Qt.NoPen); p.setBrush(QColor(57,255,20)); p.drawEllipse(QPoint(cx,cy), 4, 4)
+            lbl = f"{r.width()} × {r.height()}"
+            f2 = QFont("Segoe UI", 11, QFont.Bold); p.setFont(f2); fm = QFontMetrics(f2)
+            tw = fm.horizontalAdvance(lbl)+16; th = fm.height()+10
+            lx = r.center().x()-tw//2; ly = r.bottom()+8
+            if ly+th > self.height(): ly = r.top()-th-8
+            p.setPen(Qt.NoPen); p.setBrush(QColor(13,13,17,240)); p.drawRoundedRect(lx,ly,tw,th,6,6)
+            p.setPen(QColor(57,255,20)); p.drawText(lx+8,ly+fm.ascent()+5,lbl)
+        elif not self.active:
+            p.setFont(QFont("Segoe UI", 16, QFont.DemiBold)); p.setPen(QColor(255,255,255,160))
+            p.drawText(self.rect(), Qt.AlignCenter, "Drag to select  ·  ESC to cancel")
+        p.end()
+    def mousePressEvent(self, e):
+        if e.button()==Qt.LeftButton: self.p1=self.p2=e.pos(); self.active=True; self.update()
+    def mouseMoveEvent(self, e):
+        if self.active: self.p2=e.pos(); self.update()
+    def mouseReleaseEvent(self, e):
+        if e.button()==Qt.LeftButton and self.active:
+            self.p2=e.pos(); r=QRect(self.p1,self.p2).normalized()
+            if r.width()>5 and r.height()>5: self.selected.emit(r)
+            self.close()
+    def keyPressEvent(self, e):
+        if e.key()==Qt.Key_Escape: self.cancelled.emit(); self.close()
+
+
+# ── GIF Region Selector ──
+class GifRegionSelector(QWidget):
+    region_selected = pyqtSignal(QRect)
+    cancelled = pyqtSignal()
+    def __init__(self):
+        super().__init__()
+        self.p1 = self.p2 = None; self.active = False
+        vg = _virtual_geometry(); self.shot = _grab_all_screens(vg)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setCursor(Qt.CrossCursor); self.setGeometry(vg); self.show()
+    def paintEvent(self, e):
+        p = QPainter(self); p.drawPixmap(0, 0, self.shot)
+        p.fillRect(self.rect(), QColor(0, 0, 0, 90))
+        if self.p1 and self.p2:
+            r = QRect(self.p1, self.p2).normalized()
+            p.setCompositionMode(QPainter.CompositionMode_Source)
+            p.drawPixmap(r, self.shot, r); p.setCompositionMode(QPainter.CompositionMode_SourceOver)
+            p.setPen(QPen(QColor(255,60,60,220), 2, Qt.DashLine)); p.setBrush(Qt.NoBrush); p.drawRect(r)
+            lbl = f"GIF: {r.width()} × {r.height()}"
+            f2 = QFont("Segoe UI", 11, QFont.Bold); p.setFont(f2); fm = QFontMetrics(f2)
+            tw = fm.horizontalAdvance(lbl)+16; th = fm.height()+10
+            lx = r.center().x()-tw//2; ly = r.bottom()+8
+            if ly+th > self.height(): ly = r.top()-th-8
+            p.setPen(Qt.NoPen); p.setBrush(QColor(13,13,17,240)); p.drawRoundedRect(lx,ly,tw,th,6,6)
+            p.setPen(QColor(255,60,60)); p.drawText(lx+8,ly+fm.ascent()+5,lbl)
+        elif not self.active:
+            p.setFont(QFont("Segoe UI", 16, QFont.DemiBold)); p.setPen(QColor(255,255,255,160))
+            p.drawText(self.rect(), Qt.AlignCenter, "Select area to record GIF  ·  ESC to cancel")
+        p.end()
+    def mousePressEvent(self, e):
+        if e.button()==Qt.LeftButton: self.p1=self.p2=e.pos(); self.active=True; self.update()
+    def mouseMoveEvent(self, e):
+        if self.active: self.p2=e.pos(); self.update()
+    def mouseReleaseEvent(self, e):
+        if e.button()==Qt.LeftButton and self.active:
+            self.p2=e.pos(); r=QRect(self.p1,self.p2).normalized()
+            if r.width()>10 and r.height()>10: self.region_selected.emit(r)
+            self.close()
+    def keyPressEvent(self, e):
+        if e.key()==Qt.Key_Escape: self.cancelled.emit(); self.close()
+
+
+# ── GIF Recorder Overlay ──
+class GifRecorder(QWidget):
+    recording_done = pyqtSignal(list)
+    cancelled = pyqtSignal()
+    def __init__(self, region):
+        super().__init__()
+        self.region = region; self.frames = []; self.recording = True
+        self.start_time = time.time(); self.max_duration = 10
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setFixedSize(380, 52)
+        # Always pin to top-center of the screen where recording is happening
+        scr_at = QApplication.screenAt(region.center())
+        scr = scr_at.geometry() if scr_at else QApplication.primaryScreen().geometry()
+        self.move(scr.left() + (scr.width() - 380) // 2, scr.top() + 12)
+        # Solid dark background with red border - can't miss it
+        self.setStyleSheet("QWidget{background:#1a1a20;border:2px solid #ff3c3c;border-radius:10px;}")
+        # Red recording dot
+        self.dot_label = QLabel("🔴", self); self.dot_label.setGeometry(14, 14, 24, 24)
+        self.dot_label.setStyleSheet("font-size:18px;background:transparent;border:none;")
+        # Timer
+        self.time_label = QLabel(self); self.time_label.setGeometry(42, 4, 130, 24)
+        self.time_label.setStyleSheet("color:#ff3c3c;font-size:16px;font-weight:700;background:transparent;border:none;")
+        # Hint
+        self.hint_label = QLabel("SPACE to stop · ESC to cancel", self); self.hint_label.setGeometry(42, 28, 220, 18)
+        self.hint_label.setStyleSheet("color:#8a8a8a;font-size:12px;background:transparent;border:none;")
+        # Stop button
+        self.stop_btn = QPushButton("■  STOP", self)
+        self.stop_btn.setGeometry(262, 8, 106, 36)
+        self.stop_btn.setStyleSheet("QPushButton{background:#ff3c3c;border:none;border-radius:6px;color:#fff;font-size:14px;font-weight:700;}QPushButton:hover{background:#ff5555;}")
+        self.stop_btn.setCursor(Qt.PointingHandCursor); self.stop_btn.clicked.connect(self._stop)
+        self.show(); self.raise_(); self.activateWindow(); self.setFocus()
+        self.timer = QTimer(); self.timer.timeout.connect(self._capture); self.timer.start(100)
+        self.ui_timer = QTimer(); self.ui_timer.timeout.connect(self._update_ui); self.ui_timer.start(150)
+    def _update_ui(self):
+        s = min(time.time()-self.start_time, self.max_duration)
+        self.time_label.setText(f"● REC  {s:.1f}s / {self.max_duration}s")
+        self.dot_label.setVisible(int(s*3)%2==0)
+    def _capture(self):
+        if not self.recording: return
+        if time.time()-self.start_time >= self.max_duration: self._stop(); return
+        try:
+            r = self.region; frame = ImageGrab.grab(bbox=(r.left(),r.top(),r.right(),r.bottom()))
+            if frame.width > 640:
+                ratio = 640/frame.width; frame = frame.resize((640, int(frame.height*ratio)), Image.LANCZOS)
+            self.frames.append(frame)
+        except: pass
+    def keyPressEvent(self, e):
+        if e.key()==Qt.Key_Escape:
+            self.recording = False; self.timer.stop(); self.ui_timer.stop()
+            self.cancelled.emit(); self.close()
+        elif e.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space): self._stop()
+    def _stop(self):
+        self.recording = False; self.timer.stop(); self.ui_timer.stop()
+        if self.frames: self.recording_done.emit(self.frames)
+        else: self.cancelled.emit()
+        self.close()
+
+
+# ═══════════════════════════════════════════
+# ALBUM DROPDOWN WIDGET (reusable)
+# ═══════════════════════════════════════════
+class AlbumCombo(QComboBox):
+    def __init__(self, albums=None, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet(
+            "QComboBox{background:#1c1c20;border:1px solid #2a2a2e;border-radius:6px;"
+            "color:#e0e0e4;padding:6px 12px;font-size:13px;min-width:120px;}"
+            "QComboBox:focus{border-color:#39ff14;}"
+            "QComboBox::drop-down{border:none;width:20px;}"
+            "QComboBox::down-arrow{image:none;border-left:4px solid transparent;"
+            "border-right:4px solid transparent;border-top:5px solid #5a5a66;margin-right:8px;}"
+            "QComboBox QAbstractItemView{background:#1c1c20;border:1px solid #2a2a2e;"
+            "color:#e0e0e4;selection-background-color:#222228;}")
+        self.addItem("No album", "")
+        if albums:
+            for a in albums:
+                self.addItem(a.get('title',''), str(a.get('id','')))
+    def selected_id(self):
+        return self.currentData() or ''
+
+
+# ═══════════════════════════════════════════
+# GIF PREVIEW DIALOG
+# ═══════════════════════════════════════════
+class GifPreview(QDialog):
+    upload_clicked = pyqtSignal(list, str, str)  # frames, title, album_id
+    def __init__(self, frames, albums=None, parent=None):
+        super().__init__(parent)
+        self.frames = frames
+        self.setWindowTitle("GIF Preview — IMGBS")
+        self.setStyleSheet("QDialog{background:#111115;}")
+        self.setMinimumSize(300, 200)
+        self._gif_buf = io.BytesIO()
+        frames[0].save(self._gif_buf, format='GIF', save_all=True,
+                       append_images=frames[1:], duration=100, loop=0, optimize=True)
+        self._gif_data = self._gif_buf.getvalue()
+        ml = QVBoxLayout(self); ml.setContentsMargins(16,16,16,16); ml.setSpacing(12)
+        info = QLabel(f"{len(frames)} frames  ·  {len(self._gif_data)/1024:.0f} KB  ·  {len(frames)/10:.1f}s")
+        info.setAlignment(Qt.AlignCenter); info.setStyleSheet("color:#8a8a8a;font-size:13px;")
+        ml.addWidget(info)
+        self.gif_label = QLabel(); self.gif_label.setAlignment(Qt.AlignCenter)
+        self.gif_label.setStyleSheet("background:#0a0a0e;border:1px solid #2a2a2e;border-radius:8px;padding:8px;")
+        ml.addWidget(self.gif_label, 1)
+        self._qbuf = QBuffer(); self._qbuf.setData(QByteArray(self._gif_data)); self._qbuf.open(QBuffer.ReadOnly)
+        self.movie = QMovie(); self.movie.setDevice(self._qbuf); self.movie.setFormat(b"GIF")
+        self.gif_label.setMovie(self.movie); self.movie.start()
+        # Title
+        self.title_input = QLineEdit(); self.title_input.setPlaceholderText("Title (optional)")
+        self.title_input.setStyleSheet("QLineEdit{background:#1c1c20;border:1px solid #2a2a2e;border-radius:6px;color:#e0e0e4;padding:8px 12px;font-size:14px;}QLineEdit:focus{border-color:#39ff14;}")
+        self.title_input.setMaxLength(55); ml.addWidget(self.title_input)
+        # Album
+        if albums:
+            self.album_combo = AlbumCombo(albums)
+            ml.addWidget(self.album_combo)
+        else:
+            self.album_combo = None
+        # Buttons
+        bl = QHBoxLayout(); bl.setSpacing(10)
+        bs = "QPushButton{background:#222228;border:1px solid #2a2a2e;border-radius:6px;color:#a0a0aa;font-size:13px;font-weight:600;padding:8px 16px;}QPushButton:hover{border-color:#39ff14;color:#39ff14;}"
+        sb = QPushButton("Save"); sb.setStyleSheet(bs); sb.setCursor(Qt.PointingHandCursor)
+        sb.clicked.connect(self._save); bl.addWidget(sb)
+        db = QPushButton("✕  Discard")
+        db.setStyleSheet("QPushButton{background:#222228;border:1px solid #2a2a2e;border-radius:6px;color:#72727e;font-size:13px;font-weight:600;padding:8px 16px;}QPushButton:hover{border-color:#ff4757;color:#ff4757;}")
+        db.setCursor(Qt.PointingHandCursor); db.clicked.connect(self.reject); bl.addWidget(db)
+        ub = QPushButton("Upload")
+        ub.setFixedSize(120, 38)
+        ub.setStyleSheet("QPushButton{background:#39ff14;color:#000;border:none;border-radius:6px;font-family:'Segoe UI';font-weight:bold;font-size:14px;}QPushButton:hover{background:#45ff28;}")
+        ub.setCursor(Qt.PointingHandCursor); ub.clicked.connect(self._upload); bl.addWidget(ub)
+        ml.addLayout(bl)
+        gw, gh = frames[0].width, frames[0].height
+        scr = QApplication.primaryScreen().availableGeometry()
+        sc = min(scr.width()*0.6/max(gw,1), scr.height()*0.6/max(gh,1), 1.0)
+        self.resize(max(360, int(gw*sc)+40), max(300, int(gh*sc)+200))
+        QTimer.singleShot(50, lambda: apply_dwm(int(self.winId())))
+    def _save(self):
+        p, _ = QFileDialog.getSaveFileName(self, "Save GIF", f"recording_{int(time.time())}.gif", "GIF (*.gif)")
+        if p:
+            with open(p, 'wb') as f: f.write(self._gif_data)
+    def _upload(self):
+        self.movie.stop()
+        aid = self.album_combo.selected_id() if self.album_combo else ''
+        self.upload_clicked.emit(self.frames, self.title_input.text().strip(), aid)
+        self.accept()
+    def closeEvent(self, e): self.movie.stop(); super().closeEvent(e)
+
+
+# ═══════════════════════════════════════════
+# EDITOR — crop, undo, save, title, album, upload
+# ═══════════════════════════════════════════
+class Editor(QMainWindow):
+    upload = pyqtSignal(object, str, str, str)  # pil, title, album_id, orig_name
+    def __init__(self, pix, albums=None, parent=None, orig_name=''):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_DeleteOnClose)
+        self._orig_name = orig_name
+        self.setWindowTitle("Edit — IMGBS")
+        self.setStyleSheet("QMainWindow{background:#111115;}QToolBar{background:#18181c;border-bottom:1px solid #2a2a2e;padding:5px 8px;spacing:6px;}")
+        self._history = [pix.copy()]
+        self._crop_start = self._crop_rect = None; self._cropping = False
+        self.scene = QGraphicsScene(); self.bg = self.scene.addPixmap(pix)
+        self.view = QGraphicsView(self.scene)
+        self.view.setRenderHint(QPainter.Antialiasing)
+        self.view.setStyleSheet("background:#111115;border:none;")
+        scr = QApplication.primaryScreen().availableGeometry()
+        iw, ih = pix.width(), pix.height()
+        sc = min(scr.width()*0.85/max(iw,1), (scr.height()*0.85-90)/max(ih,1), 1.0)
+        self.resize(max(600, int(iw*sc)+16), max(400, int(ih*sc)+100))
+        self.setMinimumSize(400, 300)
+
+        bs = "QPushButton{background:#222228;border:1px solid #2a2a2e;border-radius:6px;color:#a0a0aa;font-size:13px;font-weight:600;padding:6px 14px;}QPushButton:hover{border-color:#39ff14;color:#39ff14;}"
+        ps = "QPushButton{background:#39ff14;color:#000;border:none;border-radius:6px;font-family:'Segoe UI';font-weight:bold;font-size:14px;padding:6px 20px;}QPushButton:hover{background:#45ff28;}"
+
+        # Top toolbar — crop, undo
+        tb = QToolBar(); tb.setMovable(False)
+        self.crop_btn = QPushButton("✂ Crop"); self.crop_btn.setStyleSheet(bs)
+        self.crop_btn.setCursor(Qt.PointingHandCursor); self.crop_btn.setCheckable(True)
+        self.crop_btn.clicked.connect(self._toggle_crop); tb.addWidget(self.crop_btn)
+        ub = QPushButton("↩ Undo"); ub.setStyleSheet(bs); ub.setCursor(Qt.PointingHandCursor)
+        ub.clicked.connect(self._undo); tb.addWidget(ub)
+        sp = QWidget(); sp.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred); tb.addWidget(sp)
+        svb = QPushButton("Save"); svb.setStyleSheet(bs); svb.setCursor(Qt.PointingHandCursor)
+        svb.clicked.connect(self._save); tb.addWidget(svb)
+        self.addToolBar(tb)
+
+        # Bottom bar — title, album, upload
+        bottom = QToolBar(); bottom.setMovable(False)
+        bottom.setStyleSheet("QToolBar{background:#18181c;border-top:1px solid #2a2a2e;padding:6px 8px;spacing:8px;}")
+        self.title_input = QLineEdit(); self.title_input.setPlaceholderText("Title (optional)")
+        self.title_input.setMaxLength(55)
+        self.title_input.setStyleSheet("QLineEdit{background:#1c1c20;border:1px solid #2a2a2e;border-radius:6px;color:#e0e0e4;padding:6px 10px;font-size:13px;}QLineEdit:focus{border-color:#39ff14;}")
+        self.title_input.setMinimumWidth(180)
+        bottom.addWidget(self.title_input)
+        if albums:
+            self.album_combo = AlbumCombo(albums); bottom.addWidget(self.album_combo)
+        else:
+            self.album_combo = None
+        sp2 = QWidget(); sp2.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred); bottom.addWidget(sp2)
+        upb = QPushButton("Upload"); upb.setStyleSheet(ps); upb.setCursor(Qt.PointingHandCursor)
+        upb.clicked.connect(self._up); bottom.addWidget(upb)
+        self.addToolBar(Qt.BottomToolBarArea, bottom)
+
+        self.setCentralWidget(self.view)
+        self._crop_overlay = None
+        self.view.mousePressEvent = self._mp; self.view.mouseMoveEvent = self._mm; self.view.mouseReleaseEvent = self._mr
+        QTimer.singleShot(50, lambda: apply_dwm(int(self.winId())))
+
+    def showEvent(self, e): super().showEvent(e); QTimer.singleShot(30, self._fit)
+    def resizeEvent(self, e): super().resizeEvent(e); self._fit()
+    def _fit(self):
+        pix = self.bg.pixmap()
+        vw, vh = self.view.viewport().width(), self.view.viewport().height()
+        if pix.width() <= vw and pix.height() <= vh:
+            self.view.resetTransform(); self.scene.setSceneRect(0,0,pix.width(),pix.height())
+            self.view.centerOn(self.bg)
+        else: self.view.fitInView(self.bg, Qt.KeepAspectRatio)
+    def _toggle_crop(self, checked):
+        self._cropping = checked
+        self.view.setCursor(Qt.CrossCursor if checked else Qt.ArrowCursor)
+        if checked:
+            self.crop_btn.setStyleSheet("QPushButton{background:#222228;border:1px solid #39ff14;border-radius:6px;color:#39ff14;font-size:13px;font-weight:600;padding:6px 14px;}")
+        else:
+            self.crop_btn.setStyleSheet("QPushButton{background:#222228;border:1px solid #2a2a2e;border-radius:6px;color:#a0a0aa;font-size:13px;font-weight:600;padding:6px 14px;}QPushButton:hover{border-color:#39ff14;color:#39ff14;}")
+            if self._crop_overlay: self.scene.removeItem(self._crop_overlay); self._crop_overlay = None
+    def _mp(self, e):
+        if e.button()==Qt.LeftButton and self._cropping:
+            self._crop_start = self.view.mapToScene(e.pos())
+            if self._crop_overlay: self.scene.removeItem(self._crop_overlay); self._crop_overlay = None
+    def _mm(self, e):
+        if self._cropping and self._crop_start:
+            end = self.view.mapToScene(e.pos())
+            rect = QRectF(self._crop_start, end).normalized().intersected(self.bg.boundingRect())
+            if self._crop_overlay: self.scene.removeItem(self._crop_overlay)
+            self._crop_overlay = self.scene.addRect(rect, QPen(QColor(57,255,20),2,Qt.DashLine), QBrush(QColor(57,255,20,20)))
+            self._crop_rect = rect
+    def _mr(self, e):
+        if e.button()==Qt.LeftButton and self._cropping and self._crop_rect:
+            r = self._crop_rect
+            if r.width()>5 and r.height()>5:
+                cropped = self.bg.pixmap().copy(r.toRect())
+                self._history.append(cropped); self.scene.clear()
+                self.bg = self.scene.addPixmap(cropped); self._fit()
+            self._crop_overlay = None; self._crop_rect = self._crop_start = None
+            self.crop_btn.setChecked(False); self._toggle_crop(False)
+    def _undo(self):
+        if len(self._history)>1:
+            self._history.pop(); self.scene.clear()
+            self.bg = self.scene.addPixmap(self._history[-1].copy()); self._fit()
+    def _to_pil(self, pix):
+        buf = QBuffer(); buf.open(QBuffer.ReadWrite); pix.save(buf, "PNG")
+        return Image.open(io.BytesIO(buf.data().data()))
+    def _save(self):
+        p, _ = QFileDialog.getSaveFileName(self, "Save", f"screenshot_{int(time.time())}.png", "PNG (*.png)")
+        if p: self.bg.pixmap().save(p)
+    def _up(self):
+        aid = self.album_combo.selected_id() if self.album_combo else ''
+        self.upload.emit(self._to_pil(self.bg.pixmap()), self.title_input.text().strip(), aid, self._orig_name)
+        self.close()
+
+
+# ═══════════════════════════════════════════
+# SETTINGS DIALOG
+# ═══════════════════════════════════════════
+class SettingsDialog(QDialog):
+    def __init__(self, cfg, parent=None):
+        super().__init__(parent)
+        self.cfg = cfg
+        self.setWindowTitle("Settings — IMGBS")
+        self.setFixedSize(400, 280)
+        self.setStyleSheet("QDialog{background:#141418;}QLabel{color:#e0e0e4;font-family:'Segoe UI';}")
+        ml = QVBoxLayout(self); ml.setContentsMargins(24,20,24,20); ml.setSpacing(14)
+        h = QLabel("Settings"); h.setStyleSheet("font-family:'Segoe UI';font-size:22px;font-weight:700;color:#39ff14;"); ml.addWidget(h)
+
+        sw_style = ("QCheckBox{color:#e0e0e4;font-family:'Segoe UI';font-size:13px;spacing:10px;}"
+                     "QCheckBox::indicator{width:18px;height:18px;border-radius:3px;border:1px solid #2a2a2e;background:#1c1c20;}"
+                     "QCheckBox::indicator:checked{background:#39ff14;border-color:#39ff14;}")
+
+        self.cb_sound = QCheckBox("Play sound on successful upload")
+        self.cb_sound.setStyleSheet(sw_style); self.cb_sound.setChecked(cfg.get('sound_enabled', True))
+        ml.addWidget(self.cb_sound)
+
+        self.cb_auto_up = QCheckBox("Auto-upload screenshots (skip editor)")
+        self.cb_auto_up.setStyleSheet(sw_style); self.cb_auto_up.setChecked(cfg.get('auto_upload', False))
+        ml.addWidget(self.cb_auto_up)
+
+        self.cb_auto_start = QCheckBox("Start with Windows")
+        self.cb_auto_start.setStyleSheet(sw_style); self.cb_auto_start.setChecked(get_auto_start())
+        ml.addWidget(self.cb_auto_start)
+
+        ml.addStretch()
+
+        bl = QHBoxLayout(); bl.setSpacing(10)
+        save_btn = QPushButton("Save")
+        save_btn.setStyleSheet("QPushButton{background:#39ff14;color:#000;border:none;border-radius:6px;font-family:'Segoe UI';font-weight:bold;padding:9px 24px;font-size:14px;}QPushButton:hover{background:#45ff28;}")
+        save_btn.setCursor(Qt.PointingHandCursor); save_btn.clicked.connect(self._save); bl.addWidget(save_btn)
+        cb = QPushButton("Cancel")
+        cb.setStyleSheet("QPushButton{background:#222228;border:1px solid #2a2a2e;border-radius:6px;color:#72727e;font-family:'Segoe UI';padding:9px 20px;font-size:14px;}QPushButton:hover{color:#e0e0e4;}")
+        cb.setCursor(Qt.PointingHandCursor); cb.clicked.connect(self.reject); bl.addWidget(cb)
+        ml.addLayout(bl)
+        QTimer.singleShot(50, lambda: apply_dwm(int(self.winId())))
+
+    def _save(self):
+        self.cfg.set('sound_enabled', self.cb_sound.isChecked())
+        self.cfg.set('auto_upload', self.cb_auto_up.isChecked())
+        set_auto_start(self.cb_auto_start.isChecked())
+        self.accept()
+
+
+# ═══════════════════════════════════════════
+# ACTION TILE BUTTON
+# ═══════════════════════════════════════════
+class ActionTile(QPushButton):
+    def __init__(self, icon, title, subtitle, color="#39ff14", parent=None):
+        super().__init__(parent)
+        self._icon = icon; self._title = title; self._subtitle = subtitle
+        self._color = QColor(color); self._hover = 0.0
+        self._anim = QPropertyAnimation(self, b"hv")
+        self._anim.setDuration(200); self._anim.setEasingCurve(QEasingCurve.OutCubic)
+        self.setCursor(Qt.PointingHandCursor); self.setFixedHeight(52)
+    def get_hv(self): return self._hover
+    def set_hv(self, v): self._hover = v; self.update()
+    hv = pyqtProperty(float, get_hv, set_hv)
+    def enterEvent(self, e):
+        self._anim.stop(); self._anim.setStartValue(self._hover); self._anim.setEndValue(1.0); self._anim.start()
+    def leaveEvent(self, e):
+        self._anim.stop(); self._anim.setStartValue(self._hover); self._anim.setEndValue(0.0); self._anim.start()
+    def paintEvent(self, e):
+        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height(); hv = self._hover
+        bg = QColor(26+int(6*hv), 26+int(6*hv), 30+int(6*hv))
+        border = QColor(self._color.red(), self._color.green(), self._color.blue(), int(40+120*hv))
+        p.setPen(QPen(border, 1)); p.setBrush(bg); p.drawRoundedRect(1,1,w-2,h-2,10,10)
+        if hv > 0.01:
+            glow = QRadialGradient(20, h/2, 60)
+            glow.setColorAt(0, QColor(self._color.red(), self._color.green(), self._color.blue(), int(15*hv)))
+            glow.setColorAt(1, QColor(0,0,0,0))
+            p.setPen(Qt.NoPen); p.setBrush(QBrush(glow)); p.drawRoundedRect(0,0,w,h,10,10)
+        hl = QLinearGradient(0,0,0,3)
+        hl.setColorAt(0, QColor(255,255,255,int(6+6*hv))); hl.setColorAt(1, QColor(255,255,255,0))
+        p.setPen(Qt.NoPen); p.setBrush(QBrush(hl)); p.drawRoundedRect(2,2,w-4,3,8,8)
+        p.setFont(QFont("Segoe UI Emoji", 18))
+        p.setPen(QColor(self._color.red(), self._color.green(), self._color.blue(), 180+int(75*hv)))
+        p.drawText(14, 33, self._icon)
+        tc = QColor(210+int(40*hv), 210+int(40*hv), 215+int(30*hv))
+        p.setPen(tc); p.setFont(QFont("Segoe UI Variable", 13, QFont.Bold)); p.drawText(46, 24, self._title)
+        p.setPen(QColor(90,90,102)); p.setFont(QFont("Segoe UI Variable", 10)); p.drawText(46, 39, self._subtitle)
+        p.end()
+
+
+# ═══════════════════════════════════════════
+# LOGIN / REGISTER DIALOG
+# ═══════════════════════════════════════════
+class LoginDialog(QDialog):
+    def __init__(self, cfg, parent=None):
+        super().__init__(parent); self.cfg = cfg
+        self.setWindowTitle("IMGBS — Account"); self.setFixedSize(340, 360); self.setWindowIcon(_app_icon())
+        self.setStyleSheet("QDialog{background:#141418;}QLabel{color:#e0e0e4;}QLineEdit{background:#1c1c20;border:1px solid #2a2a2e;border-radius:6px;color:#e0e0e4;padding:8px 12px;font-size:14px;}QLineEdit:focus{border-color:#39ff14;}")
+        ml = QVBoxLayout(self); ml.setSpacing(0); ml.setContentsMargins(0,0,0,0)
+        lw = QWidget(); ll2 = QVBoxLayout(lw); ll2.setContentsMargins(28,20,28,10)
+        logo = QLabel(); logo.setPixmap(_logo_pixmap(160, 45)); logo.setAlignment(Qt.AlignCenter)
+        ll2.addWidget(logo); ml.addWidget(lw)
+        tw = QWidget(); tl = QHBoxLayout(tw); tl.setContentsMargins(28,0,28,8); tl.setSpacing(4)
+        self.tab_login = QPushButton("Sign In"); self.tab_login.setCursor(Qt.PointingHandCursor)
+        self.tab_login.clicked.connect(lambda: self._tab(0)); tl.addWidget(self.tab_login)
+        self.tab_reg = QPushButton("Register"); self.tab_reg.setCursor(Qt.PointingHandCursor)
+        self.tab_reg.clicked.connect(lambda: self._tab(1)); tl.addWidget(self.tab_reg)
+        tl.addStretch(); ml.addWidget(tw)
+        self.stack = QStackedWidget(); ml.addWidget(self.stack, 1)
+        BS = "QPushButton{background:#39ff14;color:#000;border:none;border-radius:6px;font-weight:700;padding:9px 20px;font-size:14px;}QPushButton:hover{background:#45ff28;}"
+        CS = "QPushButton{background:#222228;border:1px solid #2a2a2e;border-radius:6px;color:#72727e;padding:9px 20px;font-size:14px;}QPushButton:hover{color:#e0e0e4;}"
+        # Login
+        lp = QWidget(); ll = QVBoxLayout(lp); ll.setSpacing(10); ll.setContentsMargins(28,8,28,20)
+        self.lu = QLineEdit(); self.lu.setPlaceholderText("Username or email"); ll.addWidget(self.lu)
+        self.lp = QLineEdit(); self.lp.setPlaceholderText("Password"); self.lp.setEchoMode(QLineEdit.Password)
+        self.lp.returnPressed.connect(self._do_login); ll.addWidget(self.lp)
+        self.lerr = QLabel(""); self.lerr.setStyleSheet("color:#ff4757;font-size:13px;"); self.lerr.setAlignment(Qt.AlignCenter); self.lerr.hide(); ll.addWidget(self.lerr)
+        bl = QHBoxLayout()
+        b1 = QPushButton("Sign In"); b1.setStyleSheet(BS); b1.setCursor(Qt.PointingHandCursor); b1.clicked.connect(self._do_login); bl.addWidget(b1)
+        b2 = QPushButton("Cancel"); b2.setStyleSheet(CS); b2.setCursor(Qt.PointingHandCursor); b2.clicked.connect(self.reject); bl.addWidget(b2)
+        ll.addLayout(bl); ll.addStretch(); self.stack.addWidget(lp)
+        # Register
+        rp = QWidget(); rl = QVBoxLayout(rp); rl.setSpacing(8); rl.setContentsMargins(28,8,28,20)
+        self.ru = QLineEdit(); self.ru.setPlaceholderText("Username"); rl.addWidget(self.ru)
+        self.re = QLineEdit(); self.re.setPlaceholderText("Email"); rl.addWidget(self.re)
+        self.rp1 = QLineEdit(); self.rp1.setPlaceholderText("Password (min 6)"); self.rp1.setEchoMode(QLineEdit.Password); rl.addWidget(self.rp1)
+        self.rp2 = QLineEdit(); self.rp2.setPlaceholderText("Confirm password"); self.rp2.setEchoMode(QLineEdit.Password)
+        self.rp2.returnPressed.connect(self._do_reg); rl.addWidget(self.rp2)
+        self.rerr = QLabel(""); self.rerr.setStyleSheet("color:#ff4757;font-size:13px;"); self.rerr.setAlignment(Qt.AlignCenter); self.rerr.hide(); rl.addWidget(self.rerr)
+        bl2 = QHBoxLayout()
+        rb = QPushButton("Create Account"); rb.setStyleSheet(BS); rb.setCursor(Qt.PointingHandCursor); rb.clicked.connect(self._do_reg); bl2.addWidget(rb)
+        cb2 = QPushButton("Cancel"); cb2.setStyleSheet(CS); cb2.setCursor(Qt.PointingHandCursor); cb2.clicked.connect(self.reject); bl2.addWidget(cb2)
+        rl.addLayout(bl2); rl.addStretch(); self.stack.addWidget(rp)
+        self._tab(0)
+        QTimer.singleShot(50, lambda: apply_dwm(int(self.winId())))
+    def _tab(self, i):
+        self.stack.setCurrentIndex(i)
+        act = "QPushButton{background:transparent;border:none;border-bottom:2px solid #39ff14;color:#39ff14;padding:8px 16px;font-size:14px;font-weight:700;}"
+        off = "QPushButton{background:transparent;border:none;border-bottom:2px solid transparent;color:#5a5a66;padding:8px 16px;font-size:14px;font-weight:700;}QPushButton:hover{color:#a0a0aa;}"
+        self.tab_login.setStyleSheet(act if i==0 else off); self.tab_reg.setStyleSheet(act if i==1 else off)
+    def _do_login(self):
+        u, p = self.lu.text().strip(), self.lp.text()
+        if not u or not p: self.lerr.setText("Enter username and password"); self.lerr.show(); return
+        self.lerr.hide()
+        try:
+            r = requests.post(f"{SITE_URL}/api/auth.php", data={'username':u,'password':p}, timeout=10)
+            t = r.text; j = t.rfind('{"')
+            if j>0: t=t[j:]
+            d = json.loads(t)
+            if 'error' in d: self.lerr.setText(d['error']); self.lerr.show(); return
+            self.cfg.set('api_key', d['api_key']); self.cfg.set('username', d['username']); self.cfg.set('logged_in', True)
+            self.accept()
+        except Exception as ex: self.lerr.setText(str(ex)[:80]); self.lerr.show()
+    def _do_reg(self):
+        u,e,p,p2 = self.ru.text().strip(), self.re.text().strip(), self.rp1.text(), self.rp2.text()
+        self.rerr.hide()
+        if not u or not e or not p: self.rerr.setText("All fields required"); self.rerr.show(); return
+        if p!=p2: self.rerr.setText("Passwords don't match"); self.rerr.show(); return
+        if len(p)<6: self.rerr.setText("Min 6 characters"); self.rerr.show(); return
+        try:
+            r = requests.post(f"{SITE_URL}/api/register.php", data={'username':u,'email':e,'password':p}, timeout=10)
+            t = r.text; j = t.rfind('{"')
+            if j>=0: t=t[j:]
+            else: self.rerr.setText(t[:80]); self.rerr.show(); return
+            d = json.loads(t)
+            if 'error' in d: self.rerr.setText(d['error']); self.rerr.show(); return
+            self.cfg.set('api_key', d['api_key']); self.cfg.set('username', d['username']); self.cfg.set('logged_in', True)
+            self.accept()
+        except Exception as ex: self.rerr.setText(str(ex)[:100]); self.rerr.show()
+
+
+# ═══════════════════════════════════════════
+# MAIN WINDOW — 550x280
+# ═══════════════════════════════════════════
+class App(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.cfg = Config()
+        self.wk = self.ed = self.sel = self.gif_sel = self.gif_rec = None
+        self.albums = []
+        self.setWindowTitle("IMGBS"); self.setFixedSize(550, 280); self.setWindowIcon(_app_icon())
+        self.setAcceptDrops(True)
+        central = QWidget(); self.setCentralWidget(central)
+        ml = QHBoxLayout(central); ml.setContentsMargins(0,0,0,0); ml.setSpacing(0)
+
+        # ── Left panel ──
+        left = QWidget(); left.setFixedWidth(170)
+        ll = QVBoxLayout(left); ll.setContentsMargins(18,18,18,16); ll.setSpacing(4)
+        logo = QLabel(); logo.setPixmap(_logo_pixmap(140, 40))
+        ll.addWidget(logo)
+        sub = QLabel("Screenshot Tool"); sub.setStyleSheet("font-size:12px;color:#4a4a54;letter-spacing:0.5px;")
+        ll.addWidget(sub)
+        ll.addStretch()
+        self.user_label = QLabel(); self.user_label.setStyleSheet("font-size:13px;font-weight:600;color:#a0a0aa;")
+        ll.addWidget(self.user_label)
+        self.status_dot = QLabel(); ll.addWidget(self.status_dot)
+        ll.addSpacing(6)
+
+        # Login + Settings buttons side by side
+        btn_row = QHBoxLayout(); btn_row.setSpacing(6)
+        self.login_btn = QPushButton("Sign In"); self.login_btn.setFixedHeight(26)
+        self.login_btn.setStyleSheet("QPushButton{background:transparent;border:1px solid #2a2a2e;border-radius:5px;color:#5a5a66;font-size:12px;font-weight:600;}QPushButton:hover{border-color:#39ff14;color:#39ff14;}")
+        self.login_btn.setCursor(Qt.PointingHandCursor); self.login_btn.clicked.connect(self._login)
+        btn_row.addWidget(self.login_btn)
+        gear_btn = QPushButton("⚙"); gear_btn.setFixedSize(26, 26)
+        gear_btn.setStyleSheet("QPushButton{background:transparent;border:1px solid #2a2a2e;border-radius:5px;color:#5a5a66;font-size:14px;}QPushButton:hover{border-color:#39ff14;color:#39ff14;}")
+        gear_btn.setCursor(Qt.PointingHandCursor); gear_btn.clicked.connect(self._settings)
+        btn_row.addWidget(gear_btn)
+        ll.addLayout(btn_row)
+        ml.addWidget(left)
+
+        sep = QWidget(); sep.setFixedWidth(1); sep.setStyleSheet("background:#2a2a2e;"); ml.addWidget(sep)
+
+        # ── Right panel ──
+        right = QWidget()
+        rl = QVBoxLayout(right); rl.setContentsMargins(14,14,14,12); rl.setSpacing(7)
+        self.btn_screen = ActionTile("📷", "Screenshot", "Fullscreen or select region")
+        self.btn_screen.clicked.connect(self._screenshot_menu); rl.addWidget(self.btn_screen)
+        self.btn_gif = ActionTile("🔴", "Record GIF", "Select area, capture 10s max", color="#ff4757")
+        self.btn_gif.clicked.connect(self.cap_gif); rl.addWidget(self.btn_gif)
+        self.btn_upload = ActionTile("📁", "Upload File", "Drop file here or click to browse", color="#5a9fff")
+        self.btn_upload.clicked.connect(self.up_file); rl.addWidget(self.btn_upload)
+
+        hints = QHBoxLayout(); hints.setSpacing(12)
+        for key, desc in [("PrtSc", "Full"), ("Ctrl+Shift+S", "Region")]:
+            h = QLabel(f"<span style='background:#1a1a1e;padding:1px 6px;border-radius:3px;font-family:Consolas;font-size:11px;color:#39ff14;'>{key}</span><span style='color:#4a4a54;font-size:11px;'> {desc}</span>")
+            hints.addWidget(h)
+        hints.addStretch()
+        rl.addLayout(hints)
+
+        self.result_bar = QWidget(); self.result_bar.hide()
+        rbl = QHBoxLayout(self.result_bar); rbl.setContentsMargins(8,6,8,6); rbl.setSpacing(6)
+        self.res_icon = QLabel("✅"); self.res_icon.setStyleSheet("font-size:14px;"); rbl.addWidget(self.res_icon)
+        self.res_url = QLabel(); self.res_url.setStyleSheet("font-size:12px;color:#39ff14;font-family:Consolas;")
+        self.res_url.setTextInteractionFlags(Qt.TextSelectableByMouse); rbl.addWidget(self.res_url, 1)
+        cpb = QPushButton("Copy"); cpb.setFixedSize(40, 20)
+        cpb.setStyleSheet("QPushButton{background:#222228;border:1px solid #2a2a2e;border-radius:3px;color:#a0a0aa;font-size:12px;font-weight:600;}QPushButton:hover{border-color:#39ff14;color:#39ff14;}")
+        cpb.setCursor(Qt.PointingHandCursor); cpb.clicked.connect(lambda: QApplication.clipboard().setText(self.res_url.text()))
+        rbl.addWidget(cpb); rl.addWidget(self.result_bar)
+
+        self.progress = QProgressBar(); self.progress.setFixedHeight(2)
+        self.progress.setStyleSheet("QProgressBar{background:#1a1a1e;border:none;}QProgressBar::chunk{background:#39ff14;}")
+        self.progress.hide(); rl.addWidget(self.progress)
+        ml.addWidget(right, 1)
+
+        self._build_tray()
+        self.hk = Hotkeys()
+        self.hk.on_full.connect(lambda: QTimer.singleShot(100, self.cap_full))
+        self.hk.on_region.connect(lambda: QTimer.singleShot(100, self.cap_region))
+        self.hk.start()
+        QTimer.singleShot(50, lambda: apply_dwm(int(self.winId())))
+        self._update_user()
+        self._fetch_albums()
+
+    def paintEvent(self, e):
+        p = QPainter(self); p.fillRect(self.rect(), QColor(20,20,24))
+        p.fillRect(0,0,170,self.height(), QColor(14,14,18)); p.end()
+
+    # ── Albums ──
+    def _fetch_albums(self):
+        if not self.cfg.get('logged_in'): self.albums = []; return
+        self._af = AlbumFetcher(self.cfg)
+        self._af.done.connect(self._albums_loaded)
+        self._af.start()
+    def _albums_loaded(self, albums):
+        self.albums = albums
+        self.cfg.set('albums', albums)
+
+    # ── Drag & Drop ──
+    def dragEnterEvent(self, e):
+        if e.mimeData().hasUrls() or e.mimeData().hasImage():
+            e.acceptProposedAction(); self.btn_upload._hover = 1.0; self.btn_upload.update()
+    def dragLeaveEvent(self, e): self.btn_upload._hover = 0.0; self.btn_upload.update()
+    def dropEvent(self, e):
+        self.btn_upload._hover = 0.0; self.btn_upload.update()
+        if e.mimeData().hasUrls():
+            for url in e.mimeData().urls():
+                path = url.toLocalFile()
+                if path and os.path.isfile(path):
+                    try:
+                        orig = os.path.basename(path)
+                        img = Image.open(path)
+                        if self.cfg.get('auto_upload'):
+                            self._do_upload(img, orig_name=orig)
+                        else:
+                            self._open_ed(img, orig_name=orig)
+                        return
+                    except: pass
+
+    # ── User ──
+    def _update_user(self):
+        un = self.cfg.get('username', '')
+        if un and self.cfg.get('logged_in'):
+            self.user_label.setText(f"👤 {un}")
+            self.status_dot.setText("● Connected"); self.status_dot.setStyleSheet("font-size:12px;color:#39ff14;")
+            self.login_btn.setText("Log Out")
+            try: self.login_btn.clicked.disconnect()
+            except: pass
+            self.login_btn.clicked.connect(self._logout)
+        else:
+            self.user_label.setText("Guest")
+            self.status_dot.setText("● Anonymous"); self.status_dot.setStyleSheet("font-size:12px;color:#4a4a54;")
+            self.login_btn.setText("Sign In")
+            try: self.login_btn.clicked.disconnect()
+            except: pass
+            self.login_btn.clicked.connect(self._login)
+    def _login(self):
+        dlg = LoginDialog(self.cfg, self)
+        if dlg.exec_() == QDialog.Accepted:
+            self._update_user(); self._fetch_albums()
+    def _logout(self):
+        self.cfg.set('api_key',''); self.cfg.set('username',''); self.cfg.set('logged_in', False)
+        self.albums = []; self._update_user()
+    def _settings(self):
+        dlg = SettingsDialog(self.cfg, self)
+        dlg.exec_()
+
+    # ── Screenshot ──
+    def _screenshot_menu(self):
+        menu = QMenu(self)
+        menu.setStyleSheet("QMenu{background:#1a1a1e;border:1px solid #2a2a2e;border-radius:6px;padding:4px;}QMenu::item{padding:8px 20px;border-radius:4px;margin:2px 3px;font-size:14px;color:#d0d0d8;}QMenu::item:selected{background:rgba(57,255,20,0.08);color:#39ff14;}")
+        menu.addAction("🖥  Fullscreen", self.cap_full)
+        menu.addAction("✂  Select Region", self.cap_region)
+        menu.exec_(QCursor.pos())
+
+    def cap_full(self):
+        self.hide()
+        QTimer.singleShot(300, self._do_full)
+    def _do_full(self):
+        pil = ImageGrab.grab()
+        if self.cfg.get('auto_upload'):
+            self._do_upload(pil)
+        else:
+            self._open_ed(pil)
+
+    def cap_region(self):
+        self.hide(); QTimer.singleShot(300, self._do_region)
+    def _do_region(self):
+        vg = _virtual_geometry(); pix = _grab_all_screens(vg)
+        self.sel = RegionSelector(pix)
+        self.sel.selected.connect(lambda r: self._region_done(pix, r))
+        self.sel.cancelled.connect(self._show)
+    def _region_done(self, full, rect):
+        c = full.copy(rect); b = QBuffer(); b.open(QBuffer.ReadWrite); c.save(b, "PNG")
+        pil = Image.open(io.BytesIO(b.data().data()))
+        if self.cfg.get('auto_upload'):
+            self._do_upload(pil)
+        else:
+            self._open_ed(pil)
+
+    def _open_ed(self, pil, orig_name=''):
+        buf = io.BytesIO(); pil.save(buf, format='PNG'); buf.seek(0)
+        self.ed = Editor(QPixmap.fromImage(QImage.fromData(buf.getvalue())), self.albums, self, orig_name=orig_name)
+        self.ed.upload.connect(self._do_upload_with_meta)
+        self.ed.destroyed.connect(self._show)
+        self.ed.show()
+
+    # ── GIF ──
+    def cap_gif(self):
+        self.hide(); QTimer.singleShot(200, self._do_gif_select)
+    def _do_gif_select(self):
+        self.gif_sel = GifRegionSelector()
+        self.gif_sel.region_selected.connect(self._start_gif_rec)
+        self.gif_sel.cancelled.connect(self._show)
+    def _start_gif_rec(self, rect):
+        self.gif_rec = GifRecorder(rect)
+        self.gif_rec.recording_done.connect(self._gif_done)
+        self.gif_rec.cancelled.connect(self._show)
+    def _gif_done(self, frames):
+        self._show()
+        if frames:
+            self.gif_preview = GifPreview(frames, self.albums, self)
+            self.gif_preview.upload_clicked.connect(self._do_upload_gif_meta)
+            self.gif_preview.exec_()
+
+    # ── Upload ──
+    def up_file(self):
+        p, _ = QFileDialog.getOpenFileName(self, "Image", "", "Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)")
+        if p:
+            orig = os.path.basename(p)
+            img = Image.open(p)
+            if self.cfg.get('auto_upload'):
+                self._do_upload(img, orig_name=orig)
+            else:
+                buf = io.BytesIO(); img.save(buf, format='PNG'); buf.seek(0)
+                self.ed = Editor(QPixmap.fromImage(QImage.fromData(buf.getvalue())), self.albums, self, orig_name=orig)
+                self.ed.upload.connect(self._do_upload_with_meta)
+                self.ed.destroyed.connect(self._show)
+                self.ed.show()
+
+    def _do_upload(self, pil, title='', album_id='', orig_name=''):
+        self._show(); self.result_bar.hide()
+        self.progress.show(); self.progress.setRange(0, 0)
+        self.wk = Uploader(pil, self.cfg, title=title, album_id=album_id, orig_name=orig_name)
+        self.wk.done.connect(self._upload_done); self.wk.start()
+
+    def _do_upload_with_meta(self, pil, title, album_id, orig_name=''):
+        self._do_upload(pil, title, album_id, orig_name)
+
+    def _do_upload_gif_meta(self, frames, title, album_id):
+        self._show(); self.result_bar.hide()
+        self.progress.show(); self.progress.setRange(0, 0)
+        self.wk = Uploader(frames, self.cfg, is_gif=True, title=title, album_id=album_id)
+        self.wk.done.connect(self._upload_done); self.wk.start()
+
+    def _upload_done(self, r):
+        self.progress.hide(); self.progress.setRange(0, 100)
+        if 'error' in r and not r.get('id'):
+            self.result_bar.show()
+            self.result_bar.setStyleSheet("background:rgba(255,71,87,0.06);border:1px solid rgba(255,71,87,0.15);border-radius:5px;")
+            self.res_icon.setText("❌"); self.res_url.setText(r.get('error',''))
+            self.res_url.setStyleSheet("font-size:12px;color:#ff4757;font-family:Consolas;")
+            return
+        url = r.get('page_url', r.get('url', ''))
+        QApplication.clipboard().setText(url)
+        self.result_bar.show()
+        self.result_bar.setStyleSheet("background:rgba(57,255,20,0.04);border:1px solid rgba(57,255,20,0.12);border-radius:5px;")
+        self.res_icon.setText("✅"); self.res_url.setText(url)
+        self.res_url.setStyleSheet("font-size:12px;color:#39ff14;font-family:Consolas;")
+        if self.cfg.get('sound_enabled', True): play_success_sound()
+        self.tray.showMessage("IMGBS", "URL copied!", QSystemTrayIcon.Information, 2000)
+
+    # ── Tray ──
+    def _build_tray(self):
+        self.tray = QSystemTrayIcon(self)
+        self.tray.setIcon(_app_icon())
+        m = QMenu()
+        m.setStyleSheet("QMenu{background:#1a1a1e;border:1px solid #2a2a2e;border-radius:6px;padding:4px;}QMenu::item{padding:6px 18px;border-radius:4px;margin:1px 3px;font-size:14px;color:#d0d0d8;}QMenu::item:selected{background:rgba(57,255,20,0.08);color:#39ff14;}")
+        m.addAction("📷 Screenshot", lambda: self._screenshot_menu())
+        m.addAction("🔴 Record GIF", self.cap_gif)
+        m.addAction("📁 Upload", self.up_file)
+        m.addSeparator(); m.addAction("⚙ Settings", self._settings)
+        m.addAction("Show", self._show)
+        m.addSeparator(); m.addAction("Quit", self._quit)
+        self.tray.setContextMenu(m)
+        self.tray.activated.connect(lambda r: self._show() if r == QSystemTrayIcon.DoubleClick else None)
+        self.tray.show()
+
+    def _show(self): self.show(); self.raise_(); self.activateWindow()
+    def _quit(self): self.hk.stop(); QApplication.quit()
+    def closeEvent(self, e):
+        e.ignore(); self.hide()
+        self.tray.showMessage("IMGBS", "Running in tray", QSystemTrayIcon.Information, 1500)
+
+
+def main():
+    # Enable high-DPI scaling (fixes small/blurry text on high-res displays)
+    os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
+    os.environ["QT_SCALE_FACTOR_ROUNDING_POLICY"] = "PassThrough"
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    app = QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(False)
+    app.setStyle('Fusion')
+    app.setFont(QFont('Segoe UI', 10))
+    pal = app.palette()
+    pal.setColor(pal.Window, QColor(20,20,24)); pal.setColor(pal.WindowText, QColor(224,224,228))
+    pal.setColor(pal.Base, QColor(17,17,21)); pal.setColor(pal.Text, QColor(224,224,228))
+    pal.setColor(pal.Button, QColor(28,28,32)); pal.setColor(pal.ButtonText, QColor(224,224,228))
+    pal.setColor(pal.Highlight, QColor(57,255,20)); pal.setColor(pal.HighlightedText, QColor(0,0,0))
+    app.setPalette(pal)
+    w = App(); w.show()
+    sys.exit(app.exec_())
+
+if __name__ == '__main__':
+    main()
